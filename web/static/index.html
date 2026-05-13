@@ -7,94 +7,109 @@
   <link rel="stylesheet" href="/static/styles.css" />
 </head>
 <body>
-<div id="app">
-  <aside class="sidebar">
-    <div class="brand">CMDB DevOps</div>
-    <button onclick="showPage('dashboard')">仪表盘</button>
-    <button onclick="showPage('ip')">IP 查询</button>
-    <button onclick="showPage('connectivity')">通信分析</button>
-    <button onclick="showPage('accounts')">云账户管理</button>
-    <button onclick="showPage('identity')">身份与密钥</button>
-    <button onclick="showPage('telegram')">Telegram 管理</button>
-    <button onclick="showPage('jobs')">同步任务</button>
-    <button onclick="logout()">退出</button>
+<div id="loginView" class="login-shell">
+  <section class="login-card">
+    <div class="logo-dot"></div>
+    <h1>CMDB DevOps</h1>
+    <p>多云资源 CMDB / IP 链路 / 身份密钥治理</p>
+    <input id="loginUser" placeholder="用户名" value="admin" />
+    <input id="loginPass" type="password" placeholder="密码" value="admin123456" />
+    <button onclick="login()">登录</button>
+    <span class="hint">默认账号来自 DEFAULT_ADMIN_USER / DEFAULT_ADMIN_PASSWORD</span>
+  </section>
+</div>
+
+<div id="app" class="app" style="display:none">
+  <aside class="nav">
+    <div class="brand"><span class="brand-mark"></span><b id="siteBrand">CMDB DevOps</b></div>
+    <button class="nav-item active" data-page="dashboard" onclick="showPage('dashboard')">总览</button>
+    <button class="nav-item" data-page="query" onclick="showPage('query')">查询</button>
+    <button class="nav-item" data-page="connectivity" onclick="showPage('connectivity')">通信分析</button>
+    <button class="nav-item" data-page="accounts" onclick="showPage('accounts')">云账户</button>
+    <button class="nav-item" data-page="telegram" onclick="showPage('telegram')">Telegram</button>
+    <button class="nav-item" data-page="jobs" onclick="showPage('jobs')">异步任务</button>
+    <button class="nav-item" data-page="audit" onclick="showPage('audit')">审计事件</button>
+    <button class="nav-item" data-page="users" onclick="showPage('users')">用户管理</button>
+    <button class="nav-item" data-page="settings" onclick="showPage('settings')">系统设置</button>
   </aside>
-  <main class="main">
-    <section id="loginPage" class="card login">
-      <h1>CMDB DevOps 登录</h1>
-      <input id="loginUser" placeholder="用户名" value="admin" />
-      <input id="loginPass" type="password" placeholder="密码" value="admin123456" />
-      <button onclick="login()">登录</button>
-      <p class="muted">首次启动默认账号来自环境变量 DEFAULT_ADMIN_USER / DEFAULT_ADMIN_PASSWORD。</p>
+
+  <main class="workspace">
+    <header class="topbar">
+      <div><strong id="pageTitle">总览</strong><span id="pageDesc">云资源与身份密钥缓存状态</span></div>
+      <div class="account-menu"><span id="meBadge">-</span><button class="ghost" onclick="showProfile()">我的信息</button><button class="danger" onclick="logout()">退出</button></div>
+    </header>
+
+    <section id="dashboard" class="page">
+      <div class="metrics">
+        <div class="metric"><span>云账户</span><b id="mAccounts">-</b></div>
+        <div class="metric"><span>AK 索引</span><b id="mKeys">-</b></div>
+        <div class="metric"><span>任务记录</span><b id="mJobs">-</b></div>
+        <div class="metric"><span>平台用户</span><b id="mUsers">-</b></div>
+      </div>
+      <div class="panel"><h2>运行边界</h2><p>系统以后台主动采集为核心；Web 与 Telegram 查询优先读取 Mongo 缓存。缓存未命中时触发带防抖的异步刷新，避免频繁调用云 API。</p></div>
     </section>
-    <section id="content" style="display:none">
-      <div class="topbar"><span id="pageTitle">仪表盘</span><span id="me"></span></div>
-      <div id="dashboard" class="page card">
-        <h2>资产总览</h2>
-        <div class="grid">
-          <div class="metric"><b id="mAccounts">-</b><span>云账户</span></div>
-          <div class="metric"><b id="mKeys">-</b><span>AK 索引</span></div>
-          <div class="metric"><b id="mJobs">-</b><span>任务记录</span></div>
-        </div>
-        <p class="muted">系统核心：后台主动采集云资源与身份密钥，查询优先走 Mongo 缓存，缓存 miss 触发防抖异步刷新。</p>
+
+    <section id="query" class="page" style="display:none">
+      <div class="tabs"><button class="tab active" onclick="switchTab('query','ipQueryPanel')">IP / CIDR 查询</button><button class="tab" onclick="switchTab('query','akQueryPanel')">AK 反查</button></div>
+      <div id="ipQueryPanel" class="panel subpanel">
+        <div class="toolbar"><input id="ipQuery" placeholder="10.0.1.12 / 8.8.8.8 / 2001:db8::1 / 10.0.0.0/24" /><button onclick="queryIP()">查询</button></div>
+        <div id="ipSummary" class="summary"></div><pre id="ipResult"></pre>
       </div>
-      <div id="ip" class="page card" style="display:none">
-        <h2>IP / CIDR 查询</h2>
-        <div class="row"><input id="ipQuery" placeholder="10.0.1.12 / 8.8.8.8 / 10.0.0.0/24" /><button onclick="queryIP()">查询</button></div>
-        <pre id="ipResult"></pre>
-      </div>
-      <div id="connectivity" class="page card" style="display:none">
-        <h2>资源通信分析</h2>
-        <div class="row"><input id="srcIP" placeholder="源 IP" /><input id="dstIP" placeholder="目标 IP" /><input id="port" placeholder="端口" value="443" /><button onclick="analyzeConn()">分析</button></div>
-        <pre id="connResult"></pre>
-      </div>
-      <div id="accounts" class="page card" style="display:none">
-        <h2>云账户管理</h2>
-        <div class="formgrid">
-          <input id="accProvider" placeholder="provider: aws / aliyun" value="aws" />
-          <input id="accAlias" placeholder="资源别名，如 prod-main" />
-          <input id="accID" placeholder="账户 ID" />
-          <input id="accAK" placeholder="AccessKeyId" />
-          <input id="accSK" type="password" placeholder="AccessKeySecret，仅保存时提交" />
-          <select id="accRegionMode"><option value="auto">自动发现地区</option><option value="manual">手动选择地区</option></select>
-          <input id="accRegions" placeholder="手动地区，逗号分隔" />
-          <button onclick="saveAccount()">保存账户</button>
-        </div>
-        <table id="accountsTable"></table>
-      </div>
-      <div id="identity" class="page card" style="display:none">
-        <h2>身份与密钥</h2>
-        <div class="row"><input id="akLookup" placeholder="输入 AccessKeyId 反查" /><button onclick="lookupAK()">反查 AK</button><button onclick="loadKeys();loadIdentityUsers()">刷新列表</button></div>
+      <div id="akQueryPanel" class="panel subpanel" style="display:none">
+        <div class="toolbar"><input id="akLookup" placeholder="输入 AccessKeyId，例如 AKIA... / LTAI..." /><button onclick="lookupAK()">反查</button><button class="ghost" onclick="loadKeys();loadIdentityUsers()">刷新身份缓存列表</button></div>
         <pre id="akResult"></pre>
-        <h3>开通 AK 的用户</h3>
-        <table id="keysTable"></table>
-        <h3>IAM / RAM 用户与权限</h3>
-        <table id="iamUsersTable"></table>
-      </div>
-      <div id="telegram" class="page card" style="display:none">
-        <h2>Telegram 管理</h2>
-        <div class="formgrid">
-          <label><input type="checkbox" id="tgEnabled" /> 启用</label>
-          <select id="tgMode"><option value="webhook">webhook</option><option value="polling">polling</option></select>
-          <input id="tgBotName" placeholder="Bot 名称" value="CMDB DevOps Bot" />
-          <input id="tgToken" type="password" placeholder="Bot Token，留空则不更新" />
-          <input id="tgTokenEnv" placeholder="Token 环境变量名" />
-          <input id="tgWebhook" placeholder="Webhook URL" />
-          <select id="tgParse"><option>PlainText</option><option>MarkdownV2</option><option>HTML</option></select>
-          <button onclick="saveTelegram()">保存 Telegram 配置</button>
-        </div>
-        <h3>Chat 配置</h3>
-        <div class="row"><input id="chatID" placeholder="Chat ID" /><input id="chatTitle" placeholder="Chat 名称" /><button onclick="saveChat()">保存 Chat</button></div>
-        <pre id="telegramResult"></pre>
-      </div>
-      <div id="jobs" class="page card" style="display:none">
-        <h2>同步任务</h2>
-        <button onclick="loadJobs()">刷新任务</button>
-        <table id="jobsTable"></table>
+        <h3>开启 AK 的用户</h3><div class="table-wrap"><table id="keysTable"></table></div>
+        <h3>IAM / RAM 用户与权限</h3><div class="table-wrap"><table id="iamUsersTable"></table></div>
       </div>
     </section>
+
+    <section id="connectivity" class="page" style="display:none">
+      <div class="panel compact-form">
+        <h2>资源通信分析</h2>
+        <div class="formgrid four"><input id="srcIP" placeholder="源 IP" /><input id="dstIP" placeholder="目标 IP" /><select id="proto"><option value="tcp">TCP</option><option value="udp">UDP</option><option value="icmp">ICMP</option></select><input id="port" placeholder="端口" value="443" /></div>
+        <div class="toolbar"><button onclick="analyzeConn()">开始分析</button></div>
+        <div id="connSummary" class="summary"></div><pre id="connResult"></pre>
+      </div>
+    </section>
+
+    <section id="accounts" class="page" style="display:none">
+      <div class="split">
+        <div class="panel list-panel"><div class="panel-head"><h2>云账户</h2><button onclick="newAccount()">新增</button></div><div class="table-wrap"><table id="accountsTable"></table></div></div>
+        <div class="panel detail-panel">
+          <h2 id="accFormTitle">账户详情</h2>
+          <div class="formgrid two">
+            <input type="hidden" id="accFormID" />
+            <label>云平台<select id="accProvider"><option value="aws">AWS</option><option value="aliyun">阿里云</option></select></label>
+            <label>启用状态<select id="accEnabled"><option value="true">启用</option><option value="false">禁用</option></select></label>
+            <label>资源别名<input id="accAlias" placeholder="prod-main" /></label>
+            <label>账户 ID<input id="accID" placeholder="云账户 ID" /></label>
+            <label>AccessKeyId<input id="accAK" placeholder="AccessKeyId" /></label>
+            <label>AccessKeySecret<input id="accSK" type="password" placeholder="留空不更新" /></label>
+            <label>地区模式<select id="accRegionMode"><option value="auto">自动发现</option><option value="manual">手动选择</option></select></label>
+            <label>手动地区<input id="accRegions" placeholder="ap-southeast-1,us-east-1" /></label>
+          </div>
+          <div class="toolbar"><button onclick="saveAccount()">保存</button><button class="ghost" onclick="triggerSelectedAccountJob('region_discovery')">检测地区</button><button class="ghost" onclick="triggerSelectedAccountJob('inventory_sync')">同步资源</button><button class="ghost" onclick="triggerSelectedAccountJob('identity_sync')">同步身份</button></div>
+          <div id="accDetails" class="summary"></div>
+        </div>
+      </div>
+    </section>
+
+    <section id="telegram" class="page" style="display:none">
+      <div class="tabs"><button class="tab active" onclick="switchTab('telegram','tgBotsPanel')">Bot</button><button class="tab" onclick="switchTab('telegram','tgChatsPanel')">群</button><button class="tab" onclick="switchTab('telegram','tgUsersPanel')">用户</button></div>
+      <div id="tgBotsPanel" class="panel subpanel"><h2>Bot 配置</h2><div class="formgrid three"><input id="botID" type="hidden" /><label>名称<input id="botName" value="CMDB DevOps Bot" /></label><label>启用<select id="botEnabled"><option value="true">启用</option><option value="false">禁用</option></select></label><label>默认<select id="botDefault"><option value="true">是</option><option value="false">否</option></select></label><label>模式<select id="botMode"><option value="webhook">Webhook</option><option value="polling">Polling</option></select></label><label>Token<input id="botToken" type="password" placeholder="留空不更新" /></label><label>Token 环境变量<input id="botTokenEnv" /></label><label>Webhook URL<input id="botWebhook" /></label><label>Parse Mode<select id="botParse"><option>PlainText</option><option>MarkdownV2</option><option>HTML</option></select></label></div><div class="toolbar"><button onclick="saveBot()">保存 Bot</button><button class="ghost" onclick="clearBotForm()">新增 Bot</button></div><div class="table-wrap"><table id="botsTable"></table></div></div>
+      <div id="tgChatsPanel" class="panel subpanel" style="display:none"><h2>群配置</h2><div class="formgrid three"><input id="chatFormID" type="hidden" /><label>Chat ID<input id="chatID" /></label><label>名称<input id="chatTitle" /></label><label>启用<select id="chatEnabled"><option value="true">启用</option><option value="false">禁用</option></select></label><label>允许查询<select id="chatAllowQuery"><option value="true">是</option><option value="false">否</option></select></label><label>通知<select id="chatAllowNotify"><option value="true">是</option><option value="false">否</option></select></label><label>最大返回<input id="chatMax" value="10" /></label></div><div class="toolbar"><button onclick="saveChat()">保存群</button><button class="ghost" onclick="clearChatForm()">新增群</button></div><div class="table-wrap"><table id="chatsTable"></table></div></div>
+      <div id="tgUsersPanel" class="panel subpanel" style="display:none"><h2>允许交互用户</h2><p class="hint">默认没有用户白名单时，所有 Telegram 用户均可交互；一旦创建启用用户，则只允许启用名单。</p><div class="formgrid three"><input id="tgUserFormID" type="hidden" /><label>Telegram User ID<input id="tgUserID" /></label><label>Username<input id="tgUsername" /></label><label>显示名<input id="tgDisplayName" /></label><label>启用<select id="tgUserEnabled"><option value="true">启用</option><option value="false">禁用</option></select></label><label>备注<input id="tgUserNote" /></label></div><div class="toolbar"><button onclick="saveTelegramUser()">保存用户</button><button class="ghost" onclick="clearTelegramUserForm()">新增用户</button></div><div class="table-wrap"><table id="telegramUsersTable"></table></div></div>
+    </section>
+
+    <section id="jobs" class="page" style="display:none"><div class="panel"><div class="panel-head"><h2>异步任务</h2><button onclick="loadJobs()">刷新</button></div><div class="table-wrap"><table id="jobsTable"></table></div></div></section>
+    <section id="audit" class="page" style="display:none"><div class="panel"><div class="panel-head"><h2>审计事件</h2><button onclick="loadAudit()">刷新</button></div><div class="table-wrap"><table id="auditTable"></table></div></div></section>
+    <section id="users" class="page" style="display:none"><div class="split"><div class="panel list-panel"><div class="panel-head"><h2>平台用户</h2><button onclick="newUser()">新增</button></div><div class="table-wrap"><table id="usersTable"></table></div></div><div class="panel detail-panel"><h2>用户详情</h2><input type="hidden" id="userID" /><div class="formgrid two"><label>用户名<input id="username" /></label><label>角色<select id="userRole"><option value="viewer">普通用户</option><option value="admin">管理用户</option></select></label><label>状态<select id="userEnabled"><option value="true">启用</option><option value="false">禁用</option></select></label><label>Telegram ID<input id="userTelegramID" /></label><label>密码<input id="userPassword" type="password" placeholder="留空不更新" /></label></div><div class="toolbar"><button onclick="saveUser()">保存用户</button></div></div></div></section>
+    <section id="settings" class="page" style="display:none"><div class="panel"><h2>系统设置</h2><div class="formgrid two"><label>Web 页面名称<input id="setSiteName" /></label><label>公开访问地址<input id="setPublicBase" /></label><label>资源同步间隔秒<input id="setInventory" /></label><label>地区检测间隔秒<input id="setRegion" /></label><label>身份同步间隔秒<input id="setIdentity" /></label><label>Miss 刷新防抖秒<input id="setMiss" /></label><label>Mongo URI<input id="setMongoURI" /></label><label>Mongo 管理库<input id="setMongoDB" /></label></div><div class="toolbar"><button onclick="saveSettings()">保存设置</button></div><p class="hint">Mongo 连接参数保存后用于配置可视化与下次部署参考；当前运行进程的 Mongo 连接由环境变量控制，修改后建议重启服务。</p></div></section>
   </main>
 </div>
+
+<div id="profileModal" class="modal" style="display:none"><div class="modal-card"><h2>我的信息</h2><p id="profileText"></p><label>Telegram ID<input id="profileTelegram" /></label><label>新密码<input id="profilePassword" type="password" placeholder="留空不修改" /></label><div class="toolbar"><button onclick="saveProfile()">保存</button><button class="ghost" onclick="hideProfile()">关闭</button></div></div></div>
+
 <script src="/static/app.js"></script>
 </body>
 </html>

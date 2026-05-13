@@ -51,6 +51,12 @@ func (s *Service) HandleUpdate(ctx context.Context, upd Update) error {
 		return nil
 	}
 	msg := upd.Message
+	if !s.Store.TelegramChatAllowed(ctx, msg.Chat.ID) {
+		return nil
+	}
+	if msg.From != nil && !s.Store.TelegramUserAllowed(ctx, msg.From.ID) {
+		return s.SendMessage(ctx, msg.Chat.ID, "当前 Telegram 用户未被允许使用 CMDB DevOps Bot。")
+	}
 	text := strings.TrimSpace(msg.Text)
 	if strings.HasPrefix(text, "/list") {
 		arg := strings.TrimSpace(strings.TrimPrefix(text, "/list"))
@@ -148,23 +154,40 @@ func (s *Service) replyAK(ctx context.Context, chatID int64, input string) error
 }
 
 func (s *Service) SendMessage(ctx context.Context, chatID int64, text string) error {
-	cfg, err := s.Store.GetTelegramConfig(ctx)
-	if err != nil || cfg == nil || !cfg.Enabled {
+	bot, err := s.Store.GetDefaultTelegramBot(ctx)
+	if err != nil {
 		return err
 	}
+	// Compatibility: deployments upgraded from earlier versions may still have telegram_config only.
+	var parseMode string
 	token := ""
-	if cfg.BotTokenEnv != "" {
-		token = os.Getenv(cfg.BotTokenEnv)
-	}
-	if token == "" && cfg.BotTokenEnc != "" {
-		token, _ = security.Decrypt(cfg.BotTokenEnc, s.Config.EncryptionKey)
+	if bot != nil && bot.Enabled {
+		parseMode = bot.ParseMode
+		if bot.TokenEnv != "" {
+			token = os.Getenv(bot.TokenEnv)
+		}
+		if token == "" && bot.TokenEnc != "" {
+			token, _ = security.Decrypt(bot.TokenEnc, s.Config.EncryptionKey)
+		}
+	} else {
+		cfg, cfgErr := s.Store.GetTelegramConfig(ctx)
+		if cfgErr != nil || cfg == nil || !cfg.Enabled {
+			return cfgErr
+		}
+		parseMode = cfg.ParseMode
+		if cfg.BotTokenEnv != "" {
+			token = os.Getenv(cfg.BotTokenEnv)
+		}
+		if token == "" && cfg.BotTokenEnc != "" {
+			token, _ = security.Decrypt(cfg.BotTokenEnc, s.Config.EncryptionKey)
+		}
 	}
 	if token == "" {
 		return nil
 	}
 	payload := map[string]any{"chat_id": chatID, "text": text}
-	if cfg.ParseMode != "" && cfg.ParseMode != "PlainText" {
-		payload["parse_mode"] = cfg.ParseMode
+	if parseMode != "" && parseMode != "PlainText" {
+		payload["parse_mode"] = parseMode
 	}
 	body, _ := json.Marshal(payload)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://api.telegram.org/bot"+token+"/sendMessage", bytes.NewReader(body))

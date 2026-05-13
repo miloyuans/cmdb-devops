@@ -281,3 +281,45 @@ type AuditLog struct {
 	Meta      map[string]any `bson:"meta,omitempty" json:"meta,omitempty"`
 	CreatedAt time.Time      `bson:"created_at" json:"created_at"`
 }
+
+type TelegramBot struct {
+	ID              string    `bson:"_id" json:"id"`
+	Name            string    `bson:"name" json:"name"`
+	Enabled         bool      `bson:"enabled" json:"enabled"`
+	Mode            string    `bson:"mode" json:"mode"`
+	TokenEnc        string    `bson:"token_enc,omitempty" json:"-"`
+	TokenEnv        string    `bson:"token_env,omitempty" json:"token_env,omitempty"`
+	WebhookURL      string    `bson:"webhook_url" json:"webhook_url"`
+	ParseMode       string    `bson:"parse_mode" json:"parse_mode"`
+	RateLimitPerSec int       `bson:"rate_limit_per_second" json:"rate_limit_per_second"`
+	MaxWorkers      int       `bson:"max_workers" json:"max_workers"`
+	IsDefault       bool      `bson:"is_default" json:"is_default"`
+	UpdatedBy       string    `bson:"updated_by" json:"updated_by"`
+	CreatedAt       time.Time `bson:"created_at" json:"created_at"`
+	UpdatedAt       time.Time `bson:"updated_at" json:"updated_at"`
+}
+
+type TelegramAllowedUser struct {
+	ID             string    `bson:"_id" json:"id"`
+	TelegramUserID int64     `bson:"telegram_user_id" json:"telegram_user_id"`
+	Username       string    `bson:"username" json:"username"`
+	DisplayName    string    `bson:"display_name" json:"display_name"`
+	Enabled        bool      `bson:"enabled" json:"enabled"`
+	Note           string    `bson:"note" json:"note"`
+	CreatedAt      time.Time `bson:"created_at" json:"created_at"`
+	UpdatedAt      time.Time `bson:"updated_at" json:"updated_at"`
+}
+
+type SystemSettings struct {
+	ID                         string    `bson:"_id" json:"id"`
+	SiteName                   string    `bson:"site_name" json:"site_name"`
+	PublicBaseURL              string    `bson:"public_base_url" json:"public_base_url"`
+	InventoryIntervalSeconds   int       `bson:"inventory_interval_seconds" json:"inventory_interval_seconds"`
+	RegionCheckIntervalSeconds int       `bson:"region_check_interval_seconds" json:"region_check_interval_seconds"`
+	IdentityIntervalSeconds    int       `bson:"identity_interval_seconds" json:"identity_interval_seconds"`
+	MissRefreshDebounceSeconds int       `bson:"miss_refresh_debounce_seconds" json:"miss_refresh_debounce_seconds"`
+	MongoURI                   string    `bson:"mongo_uri" json:"mongo_uri"`
+	MongoAdminDB               string    `bson:"mongo_admin_db" json:"mongo_admin_db"`
+	UpdatedBy                  string    `bson:"updated_by" json:"updated_by"`
+	UpdatedAt                  time.Time `bson:"updated_at" json:"updated_at"`
+}

@@ -31,6 +31,9 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	if err := seedAdmin(ctx, st, cfg); err != nil {
 		return nil, err
 	}
+	if err := seedSettings(ctx, st, cfg); err != nil {
+		return nil, err
+	}
 	registry := cloud.NewRegistry(cloud.NewMockProvider("aws"), cloud.NewMockProvider("aliyun"))
 	query := &service.QueryService{Store: st}
 	jm := &jobs.Manager{Store: st, Registry: registry, Config: cfg}
@@ -55,4 +58,29 @@ func seedAdmin(ctx context.Context, st *store.Store, cfg config.Config) error {
 	u := model.User{ID: "user_admin", Username: cfg.DefaultAdminUser, PasswordHash: hash, Role: model.RoleAdmin, Enabled: true, CreatedAt: now, UpdatedAt: now}
 	log.Printf("seed default admin user %s", cfg.DefaultAdminUser)
 	return st.UpsertUser(ctx, u)
+}
+
+func seedSettings(ctx context.Context, st *store.Store, cfg config.Config) error {
+	existing, err := st.GetSettings(ctx)
+	if err != nil {
+		return err
+	}
+	if existing != nil {
+		return nil
+	}
+	now := time.Now().UTC()
+	settings := model.SystemSettings{
+		ID:                         "default",
+		SiteName:                   "CMDB DevOps",
+		PublicBaseURL:              cfg.PublicBaseURL,
+		InventoryIntervalSeconds:   int(cfg.InventoryInterval.Seconds()),
+		RegionCheckIntervalSeconds: int(cfg.RegionCheckInterval.Seconds()),
+		IdentityIntervalSeconds:    int(cfg.IdentityInterval.Seconds()),
+		MissRefreshDebounceSeconds: 300,
+		MongoURI:                   cfg.MongoURI,
+		MongoAdminDB:               cfg.MongoAdminDB,
+		UpdatedBy:                  "system",
+		UpdatedAt:                  now,
+	}
+	return st.UpsertSettings(ctx, settings)
 }

@@ -6,7 +6,7 @@ CMDB DevOps 是一个 Go + MongoDB 实现的多云 CMDB / DevOps 资产查询平
 
 ## 功能
 
-- Web Console 左侧导航 + 右侧详情自适应布局
+- 紧凑型 Web Console：左侧功能导航、右上角登录/退出、右侧列表 + 详情窗口
 - 普通用户 viewer / 管理员 admin
 - 云账户 Web 配置，AK/SK 加密保存
 - 地区自动发现：默认自动发现有资源地区，也支持手动选择地区
@@ -16,7 +16,11 @@ CMDB DevOps 是一个 Go + MongoDB 实现的多云 CMDB / DevOps 资产查询平
 - IP / CIDR 查询：IPv4 / IPv6、内网 / 公网判断，多库汇总去重
 - 资源通信分析：基于私网地址、VPC、子网、安全组规则做缓存侧判断
 - 身份与密钥治理：IAM/RAM 用户、AK 列表、AK 反查、最近使用时间字段
-- Telegram 配置通过 Web UI 管理，支持 /list 和 /ak 交互
+- Telegram 配置通过 Web UI 管理，支持多个 Bot、多个群、允许交互用户白名单，默认未配置白名单时允许所有用户
+- 查询功能合并 IP/CIDR 与 AK 反查，通过子窗口切换
+- 审计事件独立页面
+- 系统设置独立页面：Web 页面名称、异步同步间隔、Mongo 配置展示
+- 平台用户管理独立页面：普通用户 viewer / 管理用户 admin，用户可更新自己的密码和 Telegram ID
 - 查询 miss 触发异步刷新，5 分钟内防抖合并
 
 
@@ -161,9 +165,13 @@ cmdb_admin
   users
   cloud_accounts
   jobs
+  audit_logs
+  system_settings
   access_key_global_index
-  telegram_config
+  telegram_bots
   telegram_chats
+  telegram_users
+  telegram_config       # 兼容旧版本
   telegram_sessions
 ```
 
@@ -184,8 +192,12 @@ cmdb_<provider>_<alias>
 ```text
 POST /api/login
 GET  /api/me
+PUT  /api/me/profile
+GET  /api/cloud/platforms
 GET  /api/accounts
+GET  /api/accounts/:id
 POST /api/accounts
+PUT  /api/accounts/:id
 POST /api/accounts/:id/jobs/region_discovery
 POST /api/accounts/:id/jobs/inventory_sync
 POST /api/accounts/:id/jobs/identity_sync
@@ -194,8 +206,21 @@ POST /api/query/connectivity
 GET  /api/identity/users
 GET  /api/identity/access-keys
 POST /api/identity/access-keys/lookup
-GET  /api/telegram/config
-PUT  /api/telegram/config
+GET  /api/telegram/bots
+POST /api/telegram/bots
+PUT  /api/telegram/bots/:id
+GET  /api/telegram/chats
+POST /api/telegram/chats
+PUT  /api/telegram/chats/:id
+GET  /api/telegram/users
+POST /api/telegram/users
+PUT  /api/telegram/users/:id
+GET  /api/settings
+PUT  /api/settings
+GET  /api/users
+POST /api/users
+PUT  /api/users/:id
+GET  /api/audit
 POST /api/telegram/webhook
 ```
 
@@ -248,3 +273,17 @@ go build -mod=mod ./cmd/cmdb-devops
 ```bash
 export GOPROXY=https://goproxy.cn,direct
 ```
+
+## v0.5 UI 与管理功能升级
+
+- 云账户管理改为左侧列表、右侧详情编辑模式。
+- 云账户默认平台选择固定为 AWS / 阿里云。
+- Telegram 管理拆分为 Bot、群、用户三类资源。
+- Telegram 支持多 Bot，多群启用/禁用，允许交互用户白名单；未配置白名单时默认允许所有用户。
+- 查询页面合并 IP/CIDR 查询与 AK 反查，使用子窗口切换。
+- 登录用户信息与退出放到右上角。
+- 新增审计事件页面。
+- 新增系统设置页面。
+- 新增平台用户管理页面，支持 viewer/admin 两类权限。
+- 新增个人资料更新接口，允许用户修改自己的密码和 Telegram ID。
+- Mongo 初始化增加 users、cloud_accounts、jobs、system_settings、audit_logs、telegram_bots、telegram_chats、telegram_users 等索引。

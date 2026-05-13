@@ -59,6 +59,22 @@ func (s *Store) EnsureIndexes(ctx context.Context) error {
 		},
 		"telegram_chats": {
 			{Keys: bson.D{{Key: "chat_id", Value: 1}}, Options: options.Index().SetUnique(true)},
+			{Keys: bson.D{{Key: "enabled", Value: 1}}},
+		},
+		"telegram_bots": {
+			{Keys: bson.D{{Key: "name", Value: 1}}, Options: options.Index().SetUnique(true)},
+			{Keys: bson.D{{Key: "enabled", Value: 1}, {Key: "is_default", Value: 1}}},
+		},
+		"telegram_users": {
+			{Keys: bson.D{{Key: "telegram_user_id", Value: 1}}, Options: options.Index().SetUnique(true)},
+			{Keys: bson.D{{Key: "enabled", Value: 1}}},
+		},
+		"audit_logs": {
+			{Keys: bson.D{{Key: "created_at", Value: -1}}},
+			{Keys: bson.D{{Key: "actor", Value: 1}, {Key: "action", Value: 1}}},
+		},
+		"system_settings": {
+			{Keys: bson.D{{Key: "updated_at", Value: -1}}},
 		},
 	}
 	for col, indexes := range indexSpecs {
@@ -434,4 +450,124 @@ func (s *Store) Close(ctx context.Context) error {
 		return nil
 	}
 	return s.Client.Disconnect(ctx)
+}
+
+func (s *Store) GetUserByID(ctx context.Context, id string) (*model.User, error) {
+	var u model.User
+	err := s.Admin().Collection("users").FindOne(ctx, bson.M{"_id": id}).Decode(&u)
+	if errors.Is(err, mongo.ErrNoDocuments) {
+		return nil, nil
+	}
+	return &u, err
+}
+
+func (s *Store) DeleteUser(ctx context.Context, id string) error {
+	_, err := s.Admin().Collection("users").DeleteOne(ctx, bson.M{"_id": id})
+	return err
+}
+
+func (s *Store) InsertAudit(ctx context.Context, log model.AuditLog) error {
+	_, err := s.Admin().Collection("audit_logs").InsertOne(ctx, log)
+	return err
+}
+
+func (s *Store) ListAudit(ctx context.Context, limit int64) ([]model.AuditLog, error) {
+	if limit <= 0 || limit > 500 {
+		limit = 200
+	}
+	cur, err := s.Admin().Collection("audit_logs").Find(ctx, bson.M{}, options.Find().SetSort(bson.D{{Key: "created_at", Value: -1}}).SetLimit(limit))
+	if err != nil {
+		return nil, err
+	}
+	defer cur.Close(ctx)
+	var out []model.AuditLog
+	return out, cur.All(ctx, &out)
+}
+
+func (s *Store) GetSettings(ctx context.Context) (*model.SystemSettings, error) {
+	var cfg model.SystemSettings
+	err := s.Admin().Collection("system_settings").FindOne(ctx, bson.M{"_id": "default"}).Decode(&cfg)
+	if errors.Is(err, mongo.ErrNoDocuments) {
+		return nil, nil
+	}
+	return &cfg, err
+}
+
+func (s *Store) UpsertSettings(ctx context.Context, cfg model.SystemSettings) error {
+	_, err := s.Admin().Collection("system_settings").UpdateByID(ctx, cfg.ID, bson.M{"$set": cfg}, options.Update().SetUpsert(true))
+	return err
+}
+
+func (s *Store) ListTelegramBots(ctx context.Context) ([]model.TelegramBot, error) {
+	cur, err := s.Admin().Collection("telegram_bots").Find(ctx, bson.M{}, options.Find().SetSort(bson.D{{Key: "is_default", Value: -1}, {Key: "name", Value: 1}}))
+	if err != nil {
+		return nil, err
+	}
+	defer cur.Close(ctx)
+	var out []model.TelegramBot
+	return out, cur.All(ctx, &out)
+}
+
+func (s *Store) GetTelegramBot(ctx context.Context, id string) (*model.TelegramBot, error) {
+	var bot model.TelegramBot
+	err := s.Admin().Collection("telegram_bots").FindOne(ctx, bson.M{"_id": id}).Decode(&bot)
+	if errors.Is(err, mongo.ErrNoDocuments) {
+		return nil, nil
+	}
+	return &bot, err
+}
+
+func (s *Store) GetDefaultTelegramBot(ctx context.Context) (*model.TelegramBot, error) {
+	var bot model.TelegramBot
+	err := s.Admin().Collection("telegram_bots").FindOne(ctx, bson.M{"enabled": true, "is_default": true}).Decode(&bot)
+	if errors.Is(err, mongo.ErrNoDocuments) {
+		err = s.Admin().Collection("telegram_bots").FindOne(ctx, bson.M{"enabled": true}).Decode(&bot)
+		if errors.Is(err, mongo.ErrNoDocuments) {
+			return nil, nil
+		}
+	}
+	return &bot, err
+}
+
+func (s *Store) UpsertTelegramBot(ctx context.Context, bot model.TelegramBot) error {
+	if bot.IsDefault {
+		_, _ = s.Admin().Collection("telegram_bots").UpdateMany(ctx, bson.M{"_id": bson.M{"$ne": bot.ID}}, bson.M{"$set": bson.M{"is_default": false}})
+	}
+	_, err := s.Admin().Collection("telegram_bots").UpdateByID(ctx, bot.ID, bson.M{"$set": bot}, options.Update().SetUpsert(true))
+	return err
+}
+
+func (s *Store) ListTelegramUsers(ctx context.Context) ([]model.TelegramAllowedUser, error) {
+	cur, err := s.Admin().Collection("telegram_users").Find(ctx, bson.M{}, options.Find().SetSort(bson.D{{Key: "username", Value: 1}}))
+	if err != nil {
+		return nil, err
+	}
+	defer cur.Close(ctx)
+	var out []model.TelegramAllowedUser
+	return out, cur.All(ctx, &out)
+}
+
+func (s *Store) UpsertTelegramUser(ctx context.Context, user model.TelegramAllowedUser) error {
+	_, err := s.Admin().Collection("telegram_users").UpdateByID(ctx, user.ID, bson.M{"$set": user}, options.Update().SetUpsert(true))
+	return err
+}
+
+func (s *Store) TelegramUserAllowed(ctx context.Context, telegramUserID int64) bool {
+	col := s.Admin().Collection("telegram_users")
+	count, err := col.CountDocuments(ctx, bson.M{"enabled": true})
+	if err != nil || count == 0 {
+		return true
+	}
+	match, err := col.CountDocuments(ctx, bson.M{"telegram_user_id": telegramUserID, "enabled": true})
+	return err == nil && match > 0
+}
+
+func (s *Store) TelegramChatAllowed(ctx context.Context, chatID int64) bool {
+	col := s.Admin().Collection("telegram_chats")
+	count, err := col.CountDocuments(ctx, bson.M{"enabled": true})
+	if err != nil || count == 0 {
+		return true
+	}
+	match, err := col.CountDocuments(ctx, bson.M{"chat_id": chatID, "enabled": true, "allow_query": true})
+	return err == nil && match > 0
 }
