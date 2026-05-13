@@ -1,6 +1,6 @@
 FROM golang:1.22-alpine AS build
 WORKDIR /src
-RUN apk add --no-cache ca-certificates tzdata
+RUN apk add --no-cache ca-certificates tzdata git
 COPY . .
 RUN set -eux; \
     if [ -f /src/go.mod ]; then root=/src; \
@@ -8,8 +8,10 @@ RUN set -eux; \
     else echo "go.mod not found. Check docker build context."; find /src -maxdepth 3 -type d | sort; exit 1; fi; \
     cd "$root"; \
     if [ ! -d ./cmd/cmdb-devops ]; then echo "cmd/cmdb-devops not found under $root"; find "$root" -maxdepth 4 -type d | sort; exit 1; fi; \
+    go env -w GOPROXY=https://proxy.golang.org,direct; \
+    go mod tidy; \
     go mod download; \
-    CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/cmdb-devops ./cmd/cmdb-devops; \
+    CGO_ENABLED=0 GOOS=linux go build -mod=mod -trimpath -ldflags="-s -w" -o /out/cmdb-devops ./cmd/cmdb-devops; \
     cp -a "$root/web" /out/web
 
 FROM alpine:3.20

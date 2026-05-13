@@ -226,3 +226,25 @@ POST /api/telegram/webhook
 - 身份与密钥模块新增 `GET /api/identity/users`，Web UI 可展示 IAM/RAM 用户、用户组和策略摘要。
 - AK 反查接口返回 `found/access_key/owner_user` 结构，未命中时会触发带防抖的 `identity_sync`。
 - 身份同步时会清理该账户旧的全局 AK 索引，避免已删除 AK 长期残留。
+
+## 构建故障处理
+
+如果 Docker 构建阶段出现 `missing go.sum entry`，说明当前包里的依赖校验文件尚未生成，v0.4 的 Dockerfile 已在容器内执行：
+
+```bash
+go mod tidy
+go mod download
+go build -mod=mod ./cmd/cmdb-devops
+```
+
+本地调试时也可以执行：
+
+```bash
+./scripts/local-build-check.sh
+```
+
+如果你所在环境使用私有 Go 代理，可以在构建前设置：
+
+```bash
+export GOPROXY=https://goproxy.cn,direct
+```
