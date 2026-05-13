@@ -1,0 +1,186 @@
+# CMDB DevOps
+
+CMDB DevOps 是一个 Go + MongoDB 实现的多云 CMDB / DevOps 资产查询平台。它按主动采集型架构设计：后台周期拉取云资源、身份用户、AccessKey 状态并写入 MongoDB；用户通过 Web UI 或 Telegram Bot 查询时优先读取缓存，并在缓存未命中时触发带防抖的异步刷新任务。
+
+> 当前包提供可运行生产骨架和完整业务闭环。默认 provider 为 `mock`，可以立即跑通账户配置、地区发现、资源同步、IP 查询、通信分析、身份/AK 反查、Telegram 配置。真实 AWS / 阿里云采集器可以按 `internal/cloud.Provider` 接口替换或扩展。
+
+## 功能
+
+- Web Console 左侧导航 + 右侧详情自适应布局
+- 普通用户 viewer / 管理员 admin
+- 云账户 Web 配置，AK/SK 加密保存
+- 地区自动发现：默认自动发现有资源地区，也支持手动选择地区
+- 地区发现任务：每天一次，可 UI 手动触发；运行中后端锁防止重复触发
+- 资源采集任务：默认 30 分钟一次，仅遍历 effective_regions
+- MongoDB 每账户独立库
+- IP / CIDR 查询：IPv4 / IPv6、内网 / 公网判断，多库汇总去重
+- 资源通信分析：基于私网地址、VPC、子网、安全组规则做缓存侧判断
+- 身份与密钥治理：IAM/RAM 用户、AK 列表、AK 反查、最近使用时间字段
+- Telegram 配置通过 Web UI 管理，支持 /list 和 /ak 交互
+- 查询 miss 触发异步刷新，5 分钟内防抖合并
+
+## 快速启动
+
+```bash
+cd deployments
+docker compose up --build
+```
+
+浏览器打开：
+
+```text
+http://localhost:8080
+```
+
+默认登录：
+
+```text
+admin / admin123456
+```
+
+建议生产环境通过环境变量修改：
+
+```text
+DEFAULT_ADMIN_USER
+DEFAULT_ADMIN_PASSWORD
+JWT_SECRET
+ENC_KEY
+```
+
+`ENC_KEY` 建议使用 32 字节随机字符串，用于加密云账户 AK Secret 和 Telegram Bot Token。
+
+## 本地启动
+
+需要本机已启动 MongoDB：
+
+```bash
+cp .env.example .env
+./scripts/run-local.sh
+```
+
+## 典型使用流程
+
+1. 登录 Web Console。
+2. 进入“云账户管理”，新增 AWS 或阿里云账户。
+3. 点击“检测地区”，系统异步写入 detected_regions 和 effective_regions。
+4. 点击“同步资源”，系统把 mock provider 的资源写到账户独立 Mongo 库。
+5. 进入“IP 查询”，输入：
+
+```text
+10.0.1.12
+```
+
+6. 进入“身份与密钥”，点击“刷新列表”或先触发身份同步，再输入 mock AK 反查。
+
+mock AWS AK 形态：
+
+```text
+AKIA<account_id>MOCK
+```
+
+mock 阿里云 AK 形态：
+
+```text
+LTAI<account_id>MOCK
+```
+
+## 真实云厂商接入点
+
+核心接口在：
+
+```text
+internal/cloud/provider.go
+```
+
+```go
+type Provider interface {
+    Name() string
+    ValidateAccount(ctx context.Context, account model.CloudAccount, secret string) error
+    DiscoverRegions(ctx context.Context, account model.CloudAccount, secret string) ([]model.RegionInfo, error)
+    CollectInventory(ctx context.Context, account model.CloudAccount, secret string, regions []string) (*InventorySnapshot, error)
+    CollectIdentity(ctx context.Context, account model.CloudAccount, secret string) (*IdentitySnapshot, error)
+}
+```
+
+默认实现：
+
+```text
+internal/cloud/mock.go
+```
+
+生产接入建议新增：
+
+```text
+internal/cloud/aws/provider.go
+internal/cloud/aliyun/provider.go
+```
+
+其中：
+
+- `DiscoverRegions`：先查询可用地域，再使用事件历史 + 轻量 Describe API 判断有资源地区。
+- `CollectInventory`：按 account + effective_regions 拉取 EC2/ECS、ENI、VPC、Subnet/VSwitch、安全组、路由表、NAT、LB 等资源。
+- `CollectIdentity`：拉取 IAM/RAM 用户、策略、AK、AK 最近使用时间。
+
+## MongoDB 结构
+
+管理库：
+
+```text
+cmdb_admin
+  users
+  cloud_accounts
+  jobs
+  access_key_global_index
+  telegram_config
+  telegram_chats
+  telegram_sessions
+```
+
+账户独立库：
+
+```text
+cmdb_<provider>_<alias>
+  resources
+  ip_index
+  security_group_rules
+  resource_edges
+  iam_users
+  access_keys
+```
+
+## API 摘要
+
+```text
+POST /api/login
+GET  /api/me
+GET  /api/accounts
+POST /api/accounts
+POST /api/accounts/:id/jobs/region_discovery
+POST /api/accounts/:id/jobs/inventory_sync
+POST /api/accounts/:id/jobs/identity_sync
+POST /api/query/ip
+POST /api/query/connectivity
+GET  /api/identity/access-keys
+POST /api/identity/access-keys/lookup
+GET  /api/telegram/config
+PUT  /api/telegram/config
+POST /api/telegram/webhook
+```
+
+## 安全建议
+
+- 不要保存 AccessKeySecret 明文。
+- 生产环境使用 Vault/KMS 替代本地 AES key。
+- 给 CMDB DevOps 的云端 AK 使用最小只读权限。
+- Web 入口必须使用 HTTPS。
+- Telegram Webhook URL 必须使用 HTTPS。
+- 真实 provider 中所有 API 调用必须加 context timeout、重试、限流和审计。
+
+## 下一步生产增强
+
+- 替换 mock provider 为真实 AWS / 阿里云 provider。
+- 将 `ip_index` 的 CIDR 查询升级为 IPv4/IPv6 数值区间索引。
+- 增加 NACL、RouteTable、VPC Peering、TGW、CEN 的完整路由判断。
+- 增加 Casbin 权限策略。
+- 增加通知队列 `telegram_notification_events` 的可靠消费 worker。
+# cmdb-devops
