@@ -64,9 +64,12 @@
       </div>
       <div id="identity" class="page card" style="display:none">
         <h2>身份与密钥</h2>
-        <div class="row"><input id="akLookup" placeholder="输入 AccessKeyId 反查" /><button onclick="lookupAK()">反查 AK</button><button onclick="loadKeys()">刷新列表</button></div>
+        <div class="row"><input id="akLookup" placeholder="输入 AccessKeyId 反查" /><button onclick="lookupAK()">反查 AK</button><button onclick="loadKeys();loadIdentityUsers()">刷新列表</button></div>
         <pre id="akResult"></pre>
+        <h3>开通 AK 的用户</h3>
         <table id="keysTable"></table>
+        <h3>IAM / RAM 用户与权限</h3>
+        <table id="iamUsersTable"></table>
       </div>
       <div id="telegram" class="page card" style="display:none">
         <h2>Telegram 管理</h2>

@@ -1,0 +1,24 @@
+services:
+  mongo:
+    image: mongo:7
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    volumes:
+      - ./deployments/data/mongo:/data/db
+
+  cmdb-devops:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      - mongo
+    env_file:
+      - ./.env.example
+    environment:
+      MONGO_URI: mongodb://mongo:27017
+      HTTP_ADDR: :8080
+      PUBLIC_BASE_URL: http://localhost:8080
+    ports:
+      - "8080:8080"

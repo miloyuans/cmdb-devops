@@ -6,6 +6,7 @@ import (
 	"net/netip"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"cmdb-devops/internal/model"
@@ -74,32 +75,54 @@ func (s *QueryService) SearchIP(ctx context.Context, input string) (*IPQueryResu
 	if err != nil {
 		return nil, err
 	}
+
+	var mu sync.Mutex
 	matches := make([]model.IPIndex, 0)
-	warnings := []string{}
-	for _, acc := range accounts {
-		if q.IsCIDR {
-			part, err := s.searchCIDR(ctx, acc, q.Prefix)
-			if err != nil {
-				warnings = append(warnings, acc.Alias+": "+err.Error())
-				continue
+	warnings := make([]string, 0)
+	sem := make(chan struct{}, 10)
+	var wg sync.WaitGroup
+
+	for _, account := range accounts {
+		acc := account
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			select {
+			case sem <- struct{}{}:
+				defer func() { <-sem }()
+			case <-ctx.Done():
+				return
+			}
+
+			qctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+			defer cancel()
+
+			var part []model.IPIndex
+			var qerr error
+			if q.IsCIDR {
+				part, qerr = s.searchCIDR(qctx, acc, q.Prefix)
+			} else {
+				part, qerr = s.Store.SearchIP(qctx, acc, q.Address)
+			}
+
+			mu.Lock()
+			defer mu.Unlock()
+			if qerr != nil {
+				warnings = append(warnings, acc.Alias+": "+qerr.Error())
+				return
 			}
 			matches = append(matches, part...)
-		} else {
-			part, err := s.Store.SearchIP(ctx, acc, q.Address)
-			if err != nil {
-				warnings = append(warnings, acc.Alias+": "+err.Error())
-				continue
-			}
-			matches = append(matches, part...)
-		}
+		}()
 	}
+	wg.Wait()
+
 	matches = dedupeIPIndex(matches)
 	return &IPQueryResult{Query: q, CacheHit: len(matches) > 0, Matches: matches, Warnings: warnings}, nil
 }
 
 func (s *QueryService) searchCIDR(ctx context.Context, acc model.CloudAccount, prefix string) ([]model.IPIndex, error) {
-	// Simple production-safe first version: scan only account ip_index, not cloud APIs. For very large fleets,
-	// extend this by storing numeric IPv4/IPv6 ranges in Mongo and using range indexes.
+	// First production-safe version: scan only account ip_index from Mongo, never cloud APIs.
+	// For huge fleets, add numeric ip_start/ip_end fields and range indexes.
 	cur, err := s.Store.AccountDB(acc).Collection("ip_index").Find(ctx, map[string]any{})
 	if err != nil {
 		return nil, err
@@ -147,19 +170,22 @@ type ConnectivityRequest struct {
 }
 
 type ConnectivityResult struct {
-	Source        []model.IPIndex `json:"source"`
-	Target        []model.IPIndex `json:"target"`
-	NetworkStatus string          `json:"network_status"`
-	SGStatus      string          `json:"security_group_status"`
-	Result        string          `json:"result"`
-	Reason        string          `json:"reason"`
-	CheckedAt     time.Time       `json:"checked_at"`
+	Source              []model.IPIndex `json:"source"`
+	Target              []model.IPIndex `json:"target"`
+	NetworkStatus       string          `json:"network_status"`
+	SourceEgressStatus  string          `json:"source_egress_status"`
+	TargetIngressStatus string          `json:"target_ingress_status"`
+	SGStatus            string          `json:"security_group_status"`
+	Result              string          `json:"result"`
+	Reason              string          `json:"reason"`
+	CheckedAt           time.Time       `json:"checked_at"`
 }
 
 func (s *QueryService) AnalyzeConnectivity(ctx context.Context, req ConnectivityRequest) (*ConnectivityResult, error) {
 	if req.Protocol == "" {
 		req.Protocol = "tcp"
 	}
+	req.Protocol = strings.ToLower(req.Protocol)
 	if req.Port == 0 {
 		req.Port = 443
 	}
@@ -176,6 +202,8 @@ func (s *QueryService) AnalyzeConnectivity(ctx context.Context, req Connectivity
 		res.Result = "unknown"
 		res.NetworkStatus = "unknown"
 		res.SGStatus = "unknown"
+		res.SourceEgressStatus = "unknown"
+		res.TargetIngressStatus = "unknown"
 		res.Reason = "source or target not found in cached CMDB"
 		return res, nil
 	}
@@ -186,31 +214,62 @@ func (s *QueryService) AnalyzeConnectivity(ctx context.Context, req Connectivity
 		res.NetworkStatus = "unknown_cross_network"
 		res.Result = "unknown"
 		res.SGStatus = "not_evaluated"
+		res.SourceEgressStatus = "not_evaluated"
+		res.TargetIngressStatus = "not_evaluated"
 		res.Reason = "resources are not in same account/region/VPC; route-peering/TGW/CEN analysis needs corresponding route resources"
 		return res, nil
 	}
-	allowed := false
-	for _, sg := range b.SecurityGroupIDs {
-		if s.targetIngressAllows(ctx, a, b, sg, req.Protocol, req.Port) {
-			allowed = true
-			break
-		}
-	}
-	if allowed {
-		res.SGStatus = "target_ingress_allowed"
-		res.Result = "allowed"
-		res.Reason = "same VPC and target security group has matching ingress rule"
+
+	egressAllowed := s.anyRuleAllows(ctx, a, b, a.SecurityGroupIDs, "egress", req.Protocol, req.Port)
+	ingressAllowed := s.anyRuleAllows(ctx, a, b, b.SecurityGroupIDs, "ingress", req.Protocol, req.Port)
+
+	if egressAllowed {
+		res.SourceEgressStatus = "allowed"
 	} else {
+		res.SourceEgressStatus = "denied_or_not_found"
+	}
+	if ingressAllowed {
+		res.TargetIngressStatus = "allowed"
+	} else {
+		res.TargetIngressStatus = "denied_or_not_found"
+	}
+
+	switch {
+	case egressAllowed && ingressAllowed:
+		res.SGStatus = "source_egress_and_target_ingress_allowed"
+		res.Result = "allowed"
+		res.Reason = "same VPC, source egress allows the target, and target ingress allows the source"
+	case !egressAllowed && !ingressAllowed:
+		res.SGStatus = "source_egress_and_target_ingress_denied"
+		res.Result = "blocked"
+		res.Reason = "network path appears reachable, but both source egress and target ingress are not allowed by cached security group rules"
+	case !egressAllowed:
+		res.SGStatus = "source_egress_denied"
+		res.Result = "blocked"
+		res.Reason = "network path appears reachable, but source security group egress does not allow the requested traffic"
+	default:
 		res.SGStatus = "target_ingress_denied"
 		res.Result = "blocked"
-		res.Reason = "network path appears reachable, but target security group does not allow the requested traffic"
+		res.Reason = "network path appears reachable, but target security group ingress does not allow the requested traffic"
 	}
 	return res, nil
 }
 
-func (s *QueryService) targetIngressAllows(ctx context.Context, src, tgt model.IPIndex, sg, proto string, port int) bool {
+func (s *QueryService) anyRuleAllows(ctx context.Context, src, tgt model.IPIndex, securityGroups []string, direction, proto string, port int) bool {
+	for _, sg := range securityGroups {
+		if s.rulesAllow(ctx, src, tgt, sg, direction, proto, port) {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *QueryService) rulesAllow(ctx context.Context, src, tgt model.IPIndex, sg, direction, proto string, port int) bool {
 	acc := model.CloudAccount{Provider: tgt.Provider, AccountID: tgt.AccountID, Alias: tgt.AccountAlias}
-	cur, err := s.Store.AccountDB(acc).Collection("security_group_rules").Find(ctx, map[string]any{"security_group_id": sg, "direction": "ingress"})
+	if direction == "egress" {
+		acc = model.CloudAccount{Provider: src.Provider, AccountID: src.AccountID, Alias: src.AccountAlias}
+	}
+	cur, err := s.Store.AccountDB(acc).Collection("security_group_rules").Find(ctx, map[string]any{"security_group_id": sg, "direction": direction})
 	if err != nil {
 		return false
 	}
@@ -219,26 +278,35 @@ func (s *QueryService) targetIngressAllows(ctx context.Context, src, tgt model.I
 	if err := cur.All(ctx, &rules); err != nil {
 		return false
 	}
-	srcAddr, _ := netip.ParseAddr(src.IP)
+
+	peerAddr := src.IP
+	peerSGs := src.SecurityGroupIDs
+	if direction == "egress" {
+		peerAddr = tgt.IP
+		peerSGs = tgt.SecurityGroupIDs
+	}
+	addr, _ := netip.ParseAddr(peerAddr)
+
 	for _, r := range rules {
-		if r.Effect == "deny" {
+		if strings.EqualFold(r.Effect, "deny") {
 			continue
 		}
-		if r.Protocol != "all" && r.Protocol != proto {
+		ruleProto := strings.ToLower(r.Protocol)
+		if ruleProto != "all" && ruleProto != "-1" && ruleProto != proto {
 			continue
 		}
 		if r.FromPort >= 0 && !(port >= r.FromPort && port <= r.ToPort) {
 			continue
 		}
-		if r.PeerType == "cidr" {
+		switch r.PeerType {
+		case "cidr":
 			prefix, err := netip.ParsePrefix(r.Peer)
-			if err == nil && prefix.Contains(srcAddr) {
+			if err == nil && prefix.Contains(addr) {
 				return true
 			}
-		}
-		if r.PeerType == "security_group" {
-			for _, ssg := range src.SecurityGroupIDs {
-				if ssg == r.Peer {
+		case "security_group":
+			for _, psg := range peerSGs {
+				if psg == r.Peer {
 					return true
 				}
 			}

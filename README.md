@@ -21,10 +21,20 @@ CMDB DevOps 是一个 Go + MongoDB 实现的多云 CMDB / DevOps 资产查询平
 
 ## 快速启动
 
+推荐在项目根目录启动，避免 Docker build context 指向错误：
+
+```bash
+docker compose up --build
+```
+
+兼容旧方式：
+
 ```bash
 cd deployments
 docker compose up --build
 ```
+
+本版本已经修复 Dockerfile 的构建路径问题：构建时会自动识别 `/src/go.mod` 或 `/src/cmdb-devops/go.mod`，并在找不到 `cmd/cmdb-devops` 时输出目录诊断。
 
 浏览器打开：
 
@@ -160,6 +170,7 @@ POST /api/accounts/:id/jobs/inventory_sync
 POST /api/accounts/:id/jobs/identity_sync
 POST /api/query/ip
 POST /api/query/connectivity
+GET  /api/identity/users
 GET  /api/identity/access-keys
 POST /api/identity/access-keys/lookup
 GET  /api/telegram/config
@@ -183,4 +194,14 @@ POST /api/telegram/webhook
 - 增加 NACL、RouteTable、VPC Peering、TGW、CEN 的完整路由判断。
 - 增加 Casbin 权限策略。
 - 增加通知队列 `telegram_notification_events` 的可靠消费 worker。
-# cmdb-devops
+
+
+## v0.2 修复与增强
+
+- 修复 Docker build `stat /src/cmd/cmdb-devops: directory not found`：Dockerfile 改为自动识别工程根目录并输出诊断。
+- 新增根目录 `compose.yaml`，推荐直接在项目根目录执行 `docker compose up --build`。
+- IP / CIDR 查询改为多账户并发查询 Mongo 缓存，避免串行遍历账户库。
+- 通信分析同时检查源安全组出方向和目标安全组入方向，不再只看目标 ingress。
+- 身份与密钥模块新增 `GET /api/identity/users`，Web UI 可展示 IAM/RAM 用户、用户组和策略摘要。
+- AK 反查接口返回 `found/access_key/owner_user` 结构，未命中时会触发带防抖的 `identity_sync`。
+- 身份同步时会清理该账户旧的全局 AK 索引，避免已删除 AK 长期残留。

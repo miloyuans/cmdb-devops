@@ -286,6 +286,9 @@ func (s *Store) FindAccessKeyGlobal(ctx context.Context, hash string) (*model.Ac
 
 func (s *Store) ReplaceIdentity(ctx context.Context, acc model.CloudAccount, users []model.IAMUser, keys []model.AccessKey) error {
 	db := s.AccountDB(acc)
+	if err := s.EnsureAccountIndexes(ctx, acc.DBName()); err != nil {
+		return err
+	}
 	if err := replaceAll(ctx, db.Collection("iam_users"), users); err != nil {
 		return err
 	}
@@ -293,6 +296,9 @@ func (s *Store) ReplaceIdentity(ctx context.Context, acc model.CloudAccount, use
 		return err
 	}
 	admin := s.Admin().Collection("access_key_global_index")
+	if _, err := admin.DeleteMany(ctx, bson.M{"provider": acc.Provider, "account_id": acc.AccountID}); err != nil {
+		return err
+	}
 	for _, key := range keys {
 		idx := model.AccessKeyGlobalIndex{
 			ID:                "akidx:" + key.AccessKeyIDHash,
@@ -322,13 +328,19 @@ func (s *Store) ReplaceIdentity(ctx context.Context, acc model.CloudAccount, use
 	return nil
 }
 
-func (s *Store) ListAccessKeys(ctx context.Context, accountAlias, status string) ([]model.AccessKeyGlobalIndex, error) {
+func (s *Store) ListAccessKeys(ctx context.Context, provider, accountAlias, status, enabled string) ([]model.AccessKeyGlobalIndex, error) {
 	filter := bson.M{}
+	if provider != "" {
+		filter["provider"] = provider
+	}
 	if accountAlias != "" {
 		filter["account_alias"] = accountAlias
 	}
 	if status != "" {
 		filter["status"] = status
+	}
+	if enabled != "" {
+		filter["enabled"] = enabled == "true" || enabled == "1" || enabled == "yes"
 	}
 	cur, err := s.Admin().Collection("access_key_global_index").Find(ctx, filter, options.Find().SetSort(bson.D{{Key: "last_used_date", Value: -1}}))
 	if err != nil {
@@ -337,6 +349,41 @@ func (s *Store) ListAccessKeys(ctx context.Context, accountAlias, status string)
 	defer cur.Close(ctx)
 	var out []model.AccessKeyGlobalIndex
 	return out, cur.All(ctx, &out)
+}
+
+func (s *Store) ListIAMUsers(ctx context.Context, provider, accountAlias string) ([]model.IAMUser, error) {
+	accounts, err := s.ListAccounts(ctx, false)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]model.IAMUser, 0)
+	for _, acc := range accounts {
+		if provider != "" && acc.Provider != provider {
+			continue
+		}
+		if accountAlias != "" && acc.Alias != accountAlias {
+			continue
+		}
+		cur, err := s.AccountDB(acc).Collection("iam_users").Find(ctx, bson.M{}, options.Find().SetSort(bson.D{{Key: "user_name", Value: 1}}))
+		if err != nil {
+			continue
+		}
+		var users []model.IAMUser
+		if err := cur.All(ctx, &users); err == nil {
+			out = append(out, users...)
+		}
+		_ = cur.Close(ctx)
+	}
+	return out, nil
+}
+
+func (s *Store) FindIAMUserByNameInDB(ctx context.Context, dbName, userName string) (*model.IAMUser, error) {
+	var user model.IAMUser
+	err := s.DB(dbName).Collection("iam_users").FindOne(ctx, bson.M{"user_name": userName}).Decode(&user)
+	if errors.Is(err, mongo.ErrNoDocuments) {
+		return nil, nil
+	}
+	return &user, err
 }
 
 func (s *Store) UpsertTelegramConfig(ctx context.Context, cfg model.TelegramConfig) error {

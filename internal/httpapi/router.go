@@ -44,6 +44,7 @@ func (s *Server) Router() *gin.Engine {
 	api.GET("/jobs", s.listJobs)
 	api.POST("/query/ip", s.queryIP)
 	api.POST("/query/connectivity", s.connectivity)
+	api.GET("/identity/users", s.listIdentityUsers)
 	api.GET("/identity/access-keys", s.listAccessKeys)
 	api.POST("/identity/access-keys/lookup", s.lookupAK)
 	api.GET("/telegram/config", s.adminOnly(), s.getTelegramConfig)
@@ -242,8 +243,13 @@ func (s *Server) connectivity(c *gin.Context) {
 	respond(c, res, err)
 }
 
+func (s *Server) listIdentityUsers(c *gin.Context) {
+	users, err := s.Store.ListIAMUsers(c.Request.Context(), c.Query("provider"), c.Query("account_alias"))
+	respond(c, users, err)
+}
+
 func (s *Server) listAccessKeys(c *gin.Context) {
-	keys, err := s.Store.ListAccessKeys(c.Request.Context(), c.Query("account_alias"), c.Query("status"))
+	keys, err := s.Store.ListAccessKeys(c.Request.Context(), c.Query("provider"), c.Query("account_alias"), c.Query("status"), c.Query("enabled"))
 	respond(c, keys, err)
 }
 
@@ -256,10 +262,21 @@ func (s *Server) lookupAK(c *gin.Context) {
 		return
 	}
 	idx, err := s.Store.FindAccessKeyGlobal(c.Request.Context(), security.HashAccessKeyID(req.AccessKeyID))
-	if err == nil && idx == nil {
-		s.Jobs.RequestMissRefresh(context.Background(), "identity_sync", "all")
+	if err != nil {
+		respond(c, nil, err)
+		return
 	}
-	respond(c, idx, err)
+	if idx == nil {
+		s.Jobs.RequestMissRefresh(context.Background(), "identity_sync", "all")
+		c.JSON(200, gin.H{"found": false, "message": "AK not found in current cache. identity_sync miss refresh has been requested with debounce."})
+		return
+	}
+	user, userErr := s.Store.FindIAMUserByNameInDB(c.Request.Context(), idx.AccountDB, idx.OwnerUserName)
+	if userErr != nil {
+		respond(c, nil, userErr)
+		return
+	}
+	c.JSON(200, gin.H{"found": true, "access_key": idx, "owner_user": user})
 }
 
 func (s *Server) getTelegramConfig(c *gin.Context) {

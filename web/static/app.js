@@ -20,7 +20,7 @@ async function init(){
   if(!token){ logout(); return; }
   $('loginPage').style.display='none'; $('content').style.display='block';
   try{ const me=await api('/api/me'); $('me').innerText=me.username+' / '+me.role; }catch(e){ logout(); return; }
-  await Promise.allSettled([loadAccounts(), loadKeys(), loadJobs(), loadTelegram()]);
+  await Promise.allSettled([loadAccounts(), loadKeys(), loadIdentityUsers(), loadJobs(), loadTelegram()]);
   showPage('dashboard');
 }
 function showPage(id){
@@ -54,6 +54,14 @@ async function loadKeys(){
   const rows=await api('/api/identity/access-keys'); $('mKeys').innerText=rows.length;
   $('keysTable').innerHTML='<tr><th>云</th><th>账户</th><th>AK</th><th>用户</th><th>状态</th><th>创建</th><th>最近使用</th><th>服务</th></tr>'+rows.map(k=>`<tr><td>${k.provider}</td><td>${k.account_alias}</td><td>${k.access_key_id_masked}</td><td>${k.owner_user_name}</td><td>${k.status}</td><td>${fmt(k.create_date)}</td><td>${fmt(k.last_used_date)}</td><td>${k.last_used_service||''}</td></tr>`).join('');
 }
+
+async function loadIdentityUsers(){
+  const rows=await api('/api/identity/users');
+  const el=$('iamUsersTable');
+  if(!el) return;
+  el.innerHTML='<tr><th>云</th><th>账户</th><th>用户</th><th>类型</th><th>启用</th><th>组</th><th>策略</th><th>创建</th></tr>'+rows.map(u=>`<tr><td>${u.provider}</td><td>${u.account_alias}</td><td>${u.user_name}</td><td>${u.user_type}</td><td>${u.enabled?'是':'否'}</td><td>${(u.groups||[]).join(', ')}</td><td>${(u.attached_policies||[]).map(p=>p.policy_name).join(', ')}</td><td>${fmt(u.create_date)}</td></tr>`).join('');
+}
+
 async function loadJobs(){
   const rows=await api('/api/jobs'); $('mJobs').innerText=rows.length;
   $('jobsTable').innerHTML='<tr><th>类型</th><th>账户</th><th>状态</th><th>触发</th><th>开始</th><th>结束</th><th>消息</th></tr>'+rows.map(j=>`<tr><td>${j.job_type}</td><td>${j.account_id||j.provider||''}</td><td><span class="pill">${j.status}</span></td><td>${j.trigger_type}</td><td>${fmt(j.started_at)}</td><td>${fmt(j.finished_at)}</td><td>${j.message||''}</td></tr>`).join('');
