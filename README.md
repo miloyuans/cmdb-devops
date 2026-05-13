@@ -19,6 +19,27 @@ CMDB DevOps 是一个 Go + MongoDB 实现的多云 CMDB / DevOps 资产查询平
 - Telegram 配置通过 Web UI 管理，支持 /list 和 /ak 交互
 - 查询 miss 触发异步刷新，5 分钟内防抖合并
 
+
+## 构建前自检
+
+如果遇到 Docker build 路径问题，先执行：
+
+```bash
+./scripts/check-build-structure.sh .
+```
+
+应输出：
+
+```text
+build structure check ok
+```
+
+关键入口文件必须存在：
+
+```text
+cmd/cmdb-devops/main.go
+```
+
 ## 快速启动
 
 推荐在项目根目录启动，避免 Docker build context 指向错误：

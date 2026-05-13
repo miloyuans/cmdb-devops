@@ -428,3 +428,10 @@ func (s *Store) FindTelegramSession(ctx context.Context, chatID int64, userID in
 	}
 	return &ses, err
 }
+
+func (s *Store) Close(ctx context.Context) error {
+	if s == nil || s.Client == nil {
+		return nil
+	}
+	return s.Client.Disconnect(ctx)
+}
