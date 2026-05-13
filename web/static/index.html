@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>CMDB DevOps</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+<div id="app">
+  <aside class="sidebar">
+    <div class="brand">CMDB DevOps</div>
+    <button onclick="showPage('dashboard')">仪表盘</button>
+    <button onclick="showPage('ip')">IP 查询</button>
+    <button onclick="showPage('connectivity')">通信分析</button>
+    <button onclick="showPage('accounts')">云账户管理</button>
+    <button onclick="showPage('identity')">身份与密钥</button>
+    <button onclick="showPage('telegram')">Telegram 管理</button>
+    <button onclick="showPage('jobs')">同步任务</button>
+    <button onclick="logout()">退出</button>
+  </aside>
+  <main class="main">
+    <section id="loginPage" class="card login">
+      <h1>CMDB DevOps 登录</h1>
+      <input id="loginUser" placeholder="用户名" value="admin" />
+      <input id="loginPass" type="password" placeholder="密码" value="admin123456" />
+      <button onclick="login()">登录</button>
+      <p class="muted">首次启动默认账号来自环境变量 DEFAULT_ADMIN_USER / DEFAULT_ADMIN_PASSWORD。</p>
+    </section>
+    <section id="content" style="display:none">
+      <div class="topbar"><span id="pageTitle">仪表盘</span><span id="me"></span></div>
+      <div id="dashboard" class="page card">
+        <h2>资产总览</h2>
+        <div class="grid">
+          <div class="metric"><b id="mAccounts">-</b><span>云账户</span></div>
+          <div class="metric"><b id="mKeys">-</b><span>AK 索引</span></div>
+          <div class="metric"><b id="mJobs">-</b><span>任务记录</span></div>
+        </div>
+        <p class="muted">系统核心：后台主动采集云资源与身份密钥，查询优先走 Mongo 缓存，缓存 miss 触发防抖异步刷新。</p>
+      </div>
+      <div id="ip" class="page card" style="display:none">
+        <h2>IP / CIDR 查询</h2>
+        <div class="row"><input id="ipQuery" placeholder="10.0.1.12 / 8.8.8.8 / 10.0.0.0/24" /><button onclick="queryIP()">查询</button></div>
+        <pre id="ipResult"></pre>
+      </div>
+      <div id="connectivity" class="page card" style="display:none">
+        <h2>资源通信分析</h2>
+        <div class="row"><input id="srcIP" placeholder="源 IP" /><input id="dstIP" placeholder="目标 IP" /><input id="port" placeholder="端口" value="443" /><button onclick="analyzeConn()">分析</button></div>
+        <pre id="connResult"></pre>
+      </div>
+      <div id="accounts" class="page card" style="display:none">
+        <h2>云账户管理</h2>
+        <div class="formgrid">
+          <input id="accProvider" placeholder="provider: aws / aliyun" value="aws" />
+          <input id="accAlias" placeholder="资源别名，如 prod-main" />
+          <input id="accID" placeholder="账户 ID" />
+          <input id="accAK" placeholder="AccessKeyId" />
+          <input id="accSK" type="password" placeholder="AccessKeySecret，仅保存时提交" />
+          <select id="accRegionMode"><option value="auto">自动发现地区</option><option value="manual">手动选择地区</option></select>
+          <input id="accRegions" placeholder="手动地区，逗号分隔" />
+          <button onclick="saveAccount()">保存账户</button>
+        </div>
+        <table id="accountsTable"></table>
+      </div>
+      <div id="identity" class="page card" style="display:none">
+        <h2>身份与密钥</h2>
+        <div class="row"><input id="akLookup" placeholder="输入 AccessKeyId 反查" /><button onclick="lookupAK()">反查 AK</button><button onclick="loadKeys()">刷新列表</button></div>
+        <pre id="akResult"></pre>
+        <table id="keysTable"></table>
+      </div>
+      <div id="telegram" class="page card" style="display:none">
+        <h2>Telegram 管理</h2>
+        <div class="formgrid">
+          <label><input type="checkbox" id="tgEnabled" /> 启用</label>
+          <select id="tgMode"><option value="webhook">webhook</option><option value="polling">polling</option></select>
+          <input id="tgBotName" placeholder="Bot 名称" value="CMDB DevOps Bot" />
+          <input id="tgToken" type="password" placeholder="Bot Token，留空则不更新" />
+          <input id="tgTokenEnv" placeholder="Token 环境变量名" />
+          <input id="tgWebhook" placeholder="Webhook URL" />
+          <select id="tgParse"><option>PlainText</option><option>MarkdownV2</option><option>HTML</option></select>
+          <button onclick="saveTelegram()">保存 Telegram 配置</button>
+        </div>
+        <h3>Chat 配置</h3>
+        <div class="row"><input id="chatID" placeholder="Chat ID" /><input id="chatTitle" placeholder="Chat 名称" /><button onclick="saveChat()">保存 Chat</button></div>
+        <pre id="telegramResult"></pre>
+      </div>
+      <div id="jobs" class="page card" style="display:none">
+        <h2>同步任务</h2>
+        <button onclick="loadJobs()">刷新任务</button>
+        <table id="jobsTable"></table>
+      </div>
+    </section>
+  </main>
+</div>
+<script src="/static/app.js"></script>
+</body>
+</html>
